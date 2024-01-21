@@ -107,8 +107,21 @@ function get_schema_markup($product_reviews, $product_id) {
         $availability = parse_stocks_def(get_post_meta($product_id, '_stock_status', true));
     }
   
-    $description = html_entity_decode(get_the_excerpt());
-    $fixed_description = preg_replace("/<[^>]*>/", "", $description); // Remove the html tags if there are any 
+	// Get description from Yoast if exists
+	if(class_exists('WPSEO_Meta') && class_exists('WPSEO_Replace_Vars')){
+
+		$string =  WPSEO_Meta::get_value( 'metadesc', $product_id );
+		
+		if ($string !== '') {
+			$replacer = new WPSEO_Replace_Vars();
+			$fixed_description = $replacer->replace( $string, get_post($product_id) );
+		} else {
+			$description = html_entity_decode(get_the_excerpt());
+			$fixed_description = preg_replace("/<[^>]*>/", "", $description); // Remove the html tags if there are any 
+		}
+
+	}    
+
     $product_images = get_product_images($product_id, $productUrl);
    
     // Build the schema properties dynamically based on properties with values
