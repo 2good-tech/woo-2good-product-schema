@@ -132,7 +132,7 @@ function get_schema_markup($product_reviews, $product_id) {
         'url' => esc_url($productUrl),
         'name' => $productName,
         'sku' => $sku,
-        'description' => $fixed_description,
+        'description' => $fixed_description ? $fixed_description : wp_strip_all_tags( do_shortcode( $product->get_short_description() ? $product->get_short_description() : $product->get_description() ) ),
         'offers' => array_filter(array(
             '@type' => 'Offer',
             'availability' => 'https://schema.org/' . $availability,
