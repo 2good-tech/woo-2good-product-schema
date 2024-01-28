@@ -1,10 +1,18 @@
 <?php
 
-function add_2good_product_schema() {
+function add_2good_product_schema($product = null) {
     if (is_product()) {
-        $product_id = get_the_ID();
-        $product_reviews = get_woocommerce_product_reviews($product_id);
-        $schema_markup = get_schema_markup($product_reviews, $product_id);
+		if ( ! is_object( $product ) ) {
+			global $product;
+		}
+
+		if ( ! is_a( $product, 'WC_Product' ) ) {
+			return;
+		}
+
+        $product_id = $product->get_id();
+        $product_reviews = get_woocommerce_product_reviews($product_id, $product);
+        $schema_markup = get_schema_markup($product_reviews, $product_id, $product);
 
         if (wp_script_is('jquery', 'enqueued')) {
             echo wp_get_inline_script_tag($schema_markup, [
@@ -15,44 +23,34 @@ function add_2good_product_schema() {
     }
 }
 
-add_action('wp_head', 'add_2good_product_schema', 1);
+add_action('wp_head', 'add_2good_product_schema', 10);
 
-function get_woocommerce_product_reviews($product_id) {
-    $reviews = [];
-    $args = [
-        'status' => 'approve',
-        'type' => 'review',
-        'post_id' => $product_id,
-    ];
+function get_schema_markup($product_reviews, $product_id, $product) {
+    
+	//get custom fields with fallbacks
+	$brandNameField = get_post_meta($product_id, 'brand', true);
+	$brandName = $brandNameField ? $brandNameField : get_bloginfo( 'name' ); //Brand fallback to sitename
+	
+	$availabilityField = get_post_meta($product_id, 'availability', true);
+	$availability = $availabilityField ? $availabilityField : parse_stocks_def($product->get_stock_status());
 
-    $comments = get_comments($args);
-
-    foreach ($comments as $comment) {
-        $rating = (int)get_comment_meta($comment->comment_ID, 'rating', true);
-        $max_rating = 5; // Change it if u have diff metrics in place
-        $min_rating = 1; // Change it if u have diff metrics in place
-        $comment_content = str_replace("\r\n", "", $comment->comment_content);
-
-        $review_data = array(
-            '@type'        => 'Review',
-            'author'       => array('@type' => 'Person', 'name' => $comment->comment_author),
-            'datePublished' => $comment->comment_date,
-            'description' => $comment_content,
-            'reviewRating' => array('@type' => 'Rating', 'bestRating' => $max_rating, 'ratingValue' => $rating, 'worstRating' => $min_rating),
-        );
-
-        $reviews[] = $review_data;
-    }
-
-    return $reviews;
-}
-
-
-function get_schema_markup($product_reviews, $product_id) {
-    $productName = get_the_title();
+	$productName = get_the_title();
     $productUrl = get_permalink();
-    $brandName = get_post_meta($product_id, 'brand', true);
-    $aggregateRating = calculate_aggregate_rating($product_reviews);
+    
+    //Get Aggregate Rating or fallback to 5/1
+	if ( $product->get_rating_count() && wc_review_ratings_enabled() ) {
+		$aggregateRating = array(
+			'@type'       => 'AggregateRating',
+			'ratingValue' => $product->get_average_rating(),
+			'reviewCount' => $product->get_review_count(),
+		);
+	} else {
+		$aggregateRating = array(
+			'@type'       => 'AggregateRating',
+			'ratingValue' => '5.00',
+			'reviewCount' => 1,
+		);
+	}
 
     $productCurr = get_woocommerce_currency($product_id);
     $productPrice = wc_get_product_price($product_id);
@@ -69,12 +67,10 @@ function get_schema_markup($product_reviews, $product_id) {
     $sku = get_post_meta($product_id, '_sku', true);
     $weight = get_post_meta($product_id, '_weight', true);
 
-    $product_variations = array();
-    $product = wc_get_product($product_id);
-
-    if ($product && $product->is_type('variable')) {
+    /*if ($product && $product->is_type('variable')) {
         // Get the variations only if the product is a variable product
         try {
+			$product_variations = array();
             $product_variations = wc_get_product($product_id)->get_available_variations();
             if (!empty($product_variations)) {
                 // Loop through variations to get color information
@@ -99,14 +95,8 @@ function get_schema_markup($product_reviews, $product_id) {
             // If variations couldn't be retrieved, handle it gracefully
             $product_variations = array();
         }
-    } // Un-comment this block to enable colors
+    }*/ // Un-comment this block to enable colors
 
-    $availability = get_post_meta($product_id, 'availability', true);
-
-    if (empty($availability)) {
-        $availability = parse_stocks_def(get_post_meta($product_id, '_stock_status', true));
-    }
-  
 	// Get description from Yoast if exists
 	if(class_exists('WPSEO_Meta') && class_exists('WPSEO_Replace_Vars')){
 
@@ -136,6 +126,7 @@ function get_schema_markup($product_reviews, $product_id) {
         'offers' => array_filter(array(
             '@type' => 'Offer',
             'availability' => 'https://schema.org/' . $availability,
+			'itemCondition' => 'https://schema.org/NewCondition',
             'price' => $productPrice,
             'priceCurrency' => $productCurr,
             'url' => esc_url($productUrl),
@@ -143,7 +134,7 @@ function get_schema_markup($product_reviews, $product_id) {
         )),
         'priceSpecification' => array_filter(array(
             '@type' => 'priceSpecification',
-            'valueAddedTaxIncluded' => true// Might need to implement this yourself if u have diff products that are not taxable .. see var 'productValueAddedTaxIncluded' above.
+            'valueAddedTaxIncluded' => true // Might need to implement this yourself if u have diff products that are not taxable .. see var 'productValueAddedTaxIncluded' above.
         )),
         'seller' => array_filter(array(
             '@type' => 'Organization', 
@@ -160,11 +151,7 @@ function get_schema_markup($product_reviews, $product_id) {
             '@type' => $weight ? 'QuantitativeValue' : null,
             'value' => $weight ? $weight : null,
         )),
-        'aggregateRating' => array_filter(array(
-            '@type' => 'AggregateRating',
-            'ratingValue' => $aggregateRating['ratingValue'],
-            'reviewCount' => $aggregateRating['reviewCount'],
-        )),
+		'aggregateRating' => $aggregateRating,
         'review' => $product_reviews,
         'image' => $product_images,
     );
@@ -177,24 +164,6 @@ function get_schema_markup($product_reviews, $product_id) {
     $schema_markup = json_encode($schema_properties, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
     return $schema_markup;
-}
-
-
-function calculate_aggregate_rating($product_reviews) {
-    $totalRating = 0;
-    $totalReviews = count($product_reviews);
-
-    foreach ($product_reviews as $review) {
-       
-        $totalRating += $review['reviewRating']['ratingValue'];
-    }
-
-    $aggregateRating = array(
-        'ratingValue' => ($totalReviews > 0) ? round($totalRating / $totalReviews, 1) : 0,
-        'reviewCount' => $totalReviews,
-    );
-
-    return $aggregateRating;
 }
 
 function get_product_images($product_id, $curr_url) {
@@ -269,4 +238,34 @@ function parse_stocks_def($stock_string) {
 
     // If not found, return the original string
     return $stock_string;
+}
+
+function get_woocommerce_product_reviews($product_id) {
+    $reviews = [];
+    $args = [
+        'status' => 'approve',
+        'type' => 'review',
+        'post_id' => $product_id,
+    ];
+
+    $comments = get_comments($args);
+
+    foreach ($comments as $comment) {
+        $rating = (int)get_comment_meta($comment->comment_ID, 'rating', true);
+        $max_rating = 5; // Change it if u have diff metrics in place
+        $min_rating = 1; // Change it if u have diff metrics in place
+        $comment_content = str_replace("\r\n", "", $comment->comment_content);
+
+        $review_data = array(
+            '@type'        => 'Review',
+            'author'       => array('@type' => 'Person', 'name' => $comment->comment_author),
+            'datePublished' => $comment->comment_date,
+            'description' => $comment_content,
+            'reviewRating' => array('@type' => 'Rating', 'bestRating' => $max_rating, 'ratingValue' => $rating, 'worstRating' => $min_rating),
+        );
+
+        $reviews[] = $review_data;
+    }
+
+    return $reviews;
 }
