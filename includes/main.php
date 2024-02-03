@@ -64,7 +64,7 @@ function get_schema_markup($product_reviews, $product_id, $product) {
 
     $size = array(); // Handle multiple colors
     $colors = array(); // Handle multiple colors
-    $sku = get_post_meta($product_id, '_sku', true);
+    $sku = $product->get_sku() ? $product->get_sku() : $product_id; // Declare SKU or fallback to ID.
     $weight = get_post_meta($product_id, '_weight', true);
 
     /*if ($product && $product->is_type('variable')) {
