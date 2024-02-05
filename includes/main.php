@@ -34,8 +34,11 @@ function get_schema_markup($product_reviews, $product_id, $product) {
 	$availabilityField = get_post_meta($product_id, 'availability', true);
 	$availability = $availabilityField ? $availabilityField : parse_stocks_def($product->get_stock_status());
 
+	$productMpn = get_post_meta($product_id, 'mpn', true); // Un-comment this line to enable mpn if u need it  
+
 	$productName = get_the_title();
     $productUrl = get_permalink();
+	$currency  = get_woocommerce_currency();
     
     //Get Aggregate Rating or fallback to 5/1
 	if ( $product->get_rating_count() && wc_review_ratings_enabled() ) {
@@ -52,20 +55,68 @@ function get_schema_markup($product_reviews, $product_id, $product) {
 		);
 	}
 
-    $productCurr = get_woocommerce_currency($product_id);
-    $productPrice = wc_get_product_price($product_id);
-    $priceValidUnt = gmdate('Y-m-d', time()) . ' 23:59:59';
-    //If u want to use it just put an if statement, woo/wp should retun
-    //taxable or nontaxable string values for this ... we don't need it in our usecase so its up to you dear Developer
-    
-    //$productValueAddedTaxIncluded = get_post_meta($product_id, '_tax_status', true); // 
+	if ( '' !== $product->get_price() ) {
+		// Assume prices will be valid for a month, unless on sale and there is an end date.
+		$price_valid_until = gmdate('Y-m-d', time() + MONTH_IN_SECONDS) . ' 23:59:59';
 
-    $productMpn = get_post_meta($product_id, 'mpn', true); // Un-comment this line to enable mpn if u need it  
+		if ( $product->is_type( 'variable' ) ) {
+			$lowest  = $product->get_variation_price( 'min', true );
+			
+			//Get end sale date for variations' lowest priced item
+			$variation_ids = $product->get_visible_children();
+			foreach( $variation_ids as $variation_id ) {
+				$variation = wc_get_product( $variation_id );
+				if ( $variation->is_on_sale() && $lowest === wc_format_decimal($variation->get_sale_price(), wc_get_price_decimals()) && $variation->get_date_on_sale_to() ) {
+					$price_valid_until = gmdate( 'Y-m-d', $variation->get_date_on_sale_to()->getTimestamp() );
+				}
+			}
+			//Create offer
+			$schema_offer = array(
+				'@type'              => 'Offer',
+				'price'              => wc_format_decimal( $lowest, wc_get_price_decimals() ),
+				'priceValidUntil'    => $price_valid_until,
+				'priceSpecification' => array(
+					'price'                 => wc_format_decimal( $lowest, wc_get_price_decimals() ),
+					'priceCurrency'         => $currency,
+					'valueAddedTaxIncluded' => wc_prices_include_tax() ? true : false,
+				),
+			);
+			 
+		} else {
+			if ( $product->is_on_sale() && $product->get_date_on_sale_to() ) {
+				$price_valid_until = gmdate( 'Y-m-d', $product->get_date_on_sale_to()->getTimestamp() );
+			}
+			//Create offer
+			$schema_offer = array(
+				'@type'              => 'Offer',
+				'price'              => wc_format_decimal( $product->get_price(), wc_get_price_decimals() ),
+				'priceValidUntil'    => $price_valid_until,
+				'priceSpecification' => array(
+					'price'                 => wc_format_decimal( $product->get_price(), wc_get_price_decimals() ),
+					'priceCurrency'         => $currency,
+					'valueAddedTaxIncluded' => wc_prices_include_tax() ? true : false,
+				),
+			);
+		}
 
-    $size = array(); // Handle multiple colors
-    $colors = array(); // Handle multiple colors
+		$schema_offer += array(
+			'priceCurrency' => $currency,
+			'availability'  => 'http://schema.org/' . $availability,
+			'itemCondition' => 'https://schema.org/NewCondition',
+			'url'           => $productUrl,
+			'seller'        => array(
+				'@type' => 'Organization',
+				'name'  => get_bloginfo( 'name' ),
+				'url'   => home_url(),
+			),
+		);
+		
+	}
+
+    //$size = array(); // Handle multiple colors
+    //$colors = array(); // Handle multiple colors
     $sku = $product->get_sku() ? $product->get_sku() : $product_id; // Declare SKU or fallback to ID.
-    $weight = get_post_meta($product_id, '_weight', true);
+    $weight = $product->get_weight();
 
     /*if ($product && $product->is_type('variable')) {
         // Get the variations only if the product is a variable product
@@ -123,30 +174,14 @@ function get_schema_markup($product_reviews, $product_id, $product) {
         'name' => $productName,
         'sku' => $sku,
         'description' => $fixed_description ? $fixed_description : wp_strip_all_tags( do_shortcode( $product->get_short_description() ? $product->get_short_description() : $product->get_description() ) ),
-        'offers' => array_filter(array(
-            '@type' => 'Offer',
-            'availability' => 'https://schema.org/' . $availability,
-			'itemCondition' => 'https://schema.org/NewCondition',
-            'price' => $productPrice,
-            'priceCurrency' => $productCurr,
-            'url' => esc_url($productUrl),
-            'priceValidUntil' => $priceValidUnt,
-        )),
-        'priceSpecification' => array_filter(array(
-            '@type' => 'priceSpecification',
-            'valueAddedTaxIncluded' => true // Might need to implement this yourself if u have diff products that are not taxable .. see var 'productValueAddedTaxIncluded' above.
-        )),
-        'seller' => array_filter(array(
-            '@type' => 'Organization', 
-            'name' => get_bloginfo( 'name' ) // Edit in here and use yours
-        )),
+ 		'offers' => array_filter($schema_offer),
         'mpn' => $productMpn, // Un-comment this line to enable mpn if u need it  
         'brand' => array_filter(array(
             '@type' => 'Brand',
             'name' => $brandName
         )),
-        'color' => implode(', ', $colors), // Un-comment this line to enable colors
-        'size' => implode(', ', $size),
+        //'color' => implode(', ', $colors), // Un-comment this line to enable colors
+        //'size' => implode(', ', $size), // Un-comment this line to enable size
         'weight' => array_filter(array(
             '@type' => $weight ? 'QuantitativeValue' : null,
             'value' => $weight ? $weight : null,
