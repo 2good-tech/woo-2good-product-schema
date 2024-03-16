@@ -5,7 +5,7 @@
  * Description: Adds Product structured data schema markup to WooCommerce.
  * Author: 2GOOD Technologies Ltd.
  * Author URI: https://2good.tech
- * Version: 1.0.1
+ * Version: 1.0.2
  *
  * License: GNU General Public License v3.0
  * License URI: http://www.gnu.org/licenses/gpl-3.0.html
