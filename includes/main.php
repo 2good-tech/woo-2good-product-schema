@@ -163,14 +163,13 @@ function get_schema_markup($product_reviews, $product_id, $product) {
 
 	}    
 
-    $product_images = get_product_images($product_id, $productUrl);
-   
     // Build the schema properties dynamically based on properties with values
     $schema_properties = array(
         '@context' => 'https://schema.org/',
         '@type' => 'Product',
         '@id' => esc_url($productUrl) . '/#Product',
         'url' => esc_url($productUrl),
+        'image' => wp_get_attachment_url( $product->get_image_id() ),
         'name' => $productName,
         'sku' => $sku,
         'description' => $fixed_description ? $fixed_description : wp_strip_all_tags( do_shortcode( $product->get_short_description() ? $product->get_short_description() : $product->get_description() ) ),
@@ -188,7 +187,6 @@ function get_schema_markup($product_reviews, $product_id, $product) {
         )),
 		'aggregateRating' => $aggregateRating,
         'review' => $product_reviews,
-        'image' => $product_images,
     );
 
     // Filter out properties with empty values
@@ -199,38 +197,6 @@ function get_schema_markup($product_reviews, $product_id, $product) {
     $schema_markup = json_encode($schema_properties, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
     return $schema_markup;
-}
-
-function get_product_images($product_id, $curr_url) {
-    $images = array();
-
-    $attachment_ids = $product_id ? wc_get_product($product_id)->get_gallery_image_ids() : array();
-   
-    $primary_image_id = get_post_thumbnail_id($product_id);
-    $primary_image_url = wp_get_attachment_url($primary_image_id);
-    
-    if (!empty($attachment_ids)) {
-
-        foreach ($attachment_ids as $attachment_id) {
-            
-            $attachment = wp_get_attachment_image_src($attachment_id, 'full');
-            if ($attachment) {
-                $image = array(
-                    '@type' => 'ImageObject',
-                    'url' => esc_url($attachment[0]),
-                    'width' => $attachment[1],
-                    'height' => $attachment[2],
-                );
-                $images[] = array_filter($image);
-            }
-        }
-    }
-
-    if ($primary_image_url && !empty($images)) {
-        $images[0] = array_merge(['@type' => 'ImageObject', '@id' => $curr_url . '#primaryimage'], $images[0]);
-    }
-
-    return $images;
 }
 
 function wc_get_product_price( $product_id ) {
