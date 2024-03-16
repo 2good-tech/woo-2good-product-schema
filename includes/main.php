@@ -26,6 +26,9 @@ function add_2good_product_schema($product = null) {
 add_action('wp_head', 'add_2good_product_schema', 10);
 
 function get_schema_markup($product_reviews, $product_id, $product) {
+
+    $freeShippingThreshold = 120; // Set your free shipping threshold here
+    $freeShipping = false;
     
 	//get custom fields with fallbacks
 	$brandNameField = get_post_meta($product_id, 'brand', true);
@@ -60,7 +63,7 @@ function get_schema_markup($product_reviews, $product_id, $product) {
 		$price_valid_until = gmdate('Y-m-d', time() + MONTH_IN_SECONDS) . ' 23:59:59';
 
 		if ( $product->is_type( 'variable' ) ) {
-			$lowest  = $product->get_variation_price( 'min', true );
+			$price = $product->get_variation_price( 'min', true );
 			
 			//Get end sale date for variations' lowest priced item
 			$variation_ids = $product->get_visible_children();
@@ -70,47 +73,121 @@ function get_schema_markup($product_reviews, $product_id, $product) {
 					$price_valid_until = gmdate( 'Y-m-d', $variation->get_date_on_sale_to()->getTimestamp() );
 				}
 			}
-			//Create offer
-			$schema_offer = array(
-				'@type'              => 'Offer',
-				'price'              => wc_format_decimal( $lowest, wc_get_price_decimals() ),
-				'priceValidUntil'    => $price_valid_until,
-				'priceSpecification' => array(
-					'price'                 => wc_format_decimal( $lowest, wc_get_price_decimals() ),
-					'priceCurrency'         => $currency,
-					'valueAddedTaxIncluded' => wc_prices_include_tax() ? true : false,
-				),
-			);
-			 
-		} else {
+		
+        } else {
+
+            $price = $product->get_price();
+            //Get end sale date for simple product
 			if ( $product->is_on_sale() && $product->get_date_on_sale_to() ) {
 				$price_valid_until = gmdate( 'Y-m-d', $product->get_date_on_sale_to()->getTimestamp() );
 			}
-			//Create offer
-			$schema_offer = array(
-				'@type'              => 'Offer',
-				'price'              => wc_format_decimal( $product->get_price(), wc_get_price_decimals() ),
-				'priceValidUntil'    => $price_valid_until,
-				'priceSpecification' => array(
-					'price'                 => wc_format_decimal( $product->get_price(), wc_get_price_decimals() ),
-					'priceCurrency'         => $currency,
-					'valueAddedTaxIncluded' => wc_prices_include_tax() ? true : false,
-				),
-			);
-		}
 
-		$schema_offer += array(
-			'priceCurrency' => $currency,
-			'availability'  => 'http://schema.org/' . $availability,
+        }
+        //Create offer
+        $schema_offer = array(
+            '@type'             => 'Offer',
+            'url'               => $productUrl,
+            'price'             => wc_format_decimal( $price, wc_get_price_decimals() ),
+            'priceCurrency'     => $currency,
+            'priceValidUntil'   => $price_valid_until,
+            'priceSpecification'    => array(
+                'price'                 => wc_format_decimal( $price, wc_get_price_decimals() ),
+                'priceCurrency'         => $currency,
+                'valueAddedTaxIncluded' => wc_prices_include_tax() ? true : false,
+            ),
+            'availability'  => 'http://schema.org/' . $availability,
 			'itemCondition' => 'https://schema.org/NewCondition',
-			'url'           => $productUrl,
-			'seller'        => array(
+            'seller'        => array(
 				'@type' => 'Organization',
 				'name'  => get_bloginfo( 'name' ),
 				'url'   => home_url(),
 			),
-		);
+        );
 		
+        // Check if the product is eligible for free shipping and set the shippingDetails property
+        if ($price >= $freeShippingThreshold) {
+            $freeShipping = true;
+        }
+        // Set the shipping details
+        $schema_offer += array(
+            "shippingDetails"   => array(
+                array( // Domestic shipping details
+                    "@type"         => "OfferShippingDetails",
+                    '@id'           => esc_url($productUrl) . '/#DomesticShipping',
+                    "shippingRate"  => array(
+                        "@type"     => "MonetaryAmount",
+                        "value"     => $freeShipping? 0 : 5.00, //edit accordingly
+                        "currency"  => $currency,
+                        //"freeShippingThreshold" => $freeShippingThreshold
+                    ),
+                    "shippingDestination"   => array(
+                        "@type"     => "DefinedRegion",
+                        "addressCountry"    => "BG"
+                    ),
+                    "deliveryTime"  => array( //edit accordingly
+                        "@type" => "ShippingDeliveryTime",
+                        "handlingTime"  => array(
+                            "@type"   => "QuantitativeValue",
+                            "minValue"    => 0,
+                            "maxValue"    => 2,
+                            "unitCode"    => "DAY"
+                        ),
+                        "transitTime"   => array(
+                            "@type"   => "QuantitativeValue",
+                            "minValue"    => 1,
+                            "maxValue"    => 5,
+                            "unitCode"    => "DAY"
+                        )
+                    )
+                ),
+                array( // International shipping details
+                    "@type" => "OfferShippingDetails",
+                    '@id' => esc_url($productUrl) . '/#InternationalShipping',
+                    "shippingRate"  => array(
+                        "@type"     => "MonetaryAmount",
+                        "value"     => 15.00, //edit accordingly
+                        "currency"  => $currency
+                    ),
+                    "shippingDestination"   => array(
+                        "@type"     => "DefinedRegion",
+                        "addressCountry"    => array("GR", "RO")
+                    ),
+                    "deliveryTime"  => array( //edit accordingly
+                        "@type" => "ShippingDeliveryTime",
+                        "handlingTime"  => array(
+                            "@type"   => "QuantitativeValue",
+                            "minValue"    => 0,
+                            "maxValue"    => 2,
+                            "unitCode"    => "DAY"
+                        ),
+                        "transitTime"   => array(
+                            "@type"   => "QuantitativeValue",
+                            "minValue"    => 2,
+                            "maxValue"    => 7,
+                            "unitCode"    => "DAY"
+                        )
+                    )
+                )
+            ),
+        );
+
+        // Set the return policy edit accordingly
+        $countries_obj = new WC_Countries();
+        $shipping_countries = $countries_obj->get_shipping_countries();
+        $countryCodes = array_keys($shipping_countries);
+
+        $schema_offer += array(
+            "hasMerchantReturnPolicy" => array(
+                "@type" => "MerchantReturnPolicy",
+                "applicableCountry" => $countryCodes,
+                "returnPolicyCategory"  => "https://schema.org/MerchantReturnFiniteReturnWindow",
+                "merchantReturnDays"    => 14,
+                "inStoreReturnsOffered" => "https://schema.org/True",
+                "returnMethod"  => "https://schema.org/ReturnByMail",
+                "returnFees"    => "https://schema.org/ReturnFeesCustomerResponsibility"
+            ),
+        );
+
 	}
 
     //$size = array(); // Handle multiple colors
@@ -197,10 +274,7 @@ function get_schema_markup($product_reviews, $product_id, $product) {
     $schema_markup = json_encode($schema_properties, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
     return $schema_markup;
-}
 
-function wc_get_product_price( $product_id ) {
-    return ( $product = wc_get_product( $product_id ) ) ? $product->get_price() : false;
 }
 
 function parse_stocks_def($stock_string) {
